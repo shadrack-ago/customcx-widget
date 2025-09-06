@@ -38,7 +38,8 @@
             bottom: 90px;
             z-index: 1000;
             width: 380px;
-            height: 580px;
+            /*  height: 580px; */
+             height: 580px;
             background: var(--chat-color-surface);
             border-radius: var(--chat-radius-lg);
             box-shadow: var(--chat-shadow-lg);
@@ -48,8 +49,27 @@
             flex-direction: column;
             transition: var(--chat-transition);
             opacity: 0;
+            height: min(520px, calc(100vh - 120px));
+            max-height: calc(100vh - 120px);
             transform: translateY(20px) scale(0.95);
         }
+        @media (max-width: 768px) {
+    .chat-assist-widget .chat-window {
+        width: calc(100vw - 40px);
+        left: 20px;
+        right: 20px;
+    }
+}
+
+/* For smaller mobile screens */
+@media (max-width: 480px) {
+    .chat-assist-widget .chat-window {
+        width: calc(100vw - 20px) ;
+        left: 10px ;
+        right: 10px ;
+        bottom: 80px ;
+    }
+}
 
         .chat-assist-widget .chat-window.right-side {
             right: 20px;
@@ -545,8 +565,8 @@
             welcomeText: '',
             responseTimeText: '',
             poweredBy: {
-                text: 'Powered by n8n',
-                link: 'https://n8n.partnerlinks.io/fabimarkl'
+                text: 'Powered by CustomCX',
+                link: 'https://customcx.com/'
             }
         },
         style: {
@@ -708,10 +728,39 @@
     }
 
     // Show registration form
-    function showRegistrationForm() {
-        chatWelcome.style.display = 'none';
-        userRegistration.classList.add('active');
+    // Show registration form
+function showRegistrationForm() {
+    // 🔹 Check for saved user details
+    const savedUser = localStorage.getItem("chatUser");
+    if (savedUser) {
+        try {
+            const { name, email } = JSON.parse(savedUser);
+
+            // Instead of showing form, jump straight into chat
+            conversationId = createSessionId();
+            const sessionData = [{
+                action: "loadPreviousSession",
+                sessionId: conversationId,
+                route: settings.webhook.route,
+                metadata: {
+                    userId: email,
+                    userName: name
+                }
+            }];
+
+            // 🚀 Auto-start chat with saved details
+            startChatSession(sessionData, name, email);
+            return; // skip showing form
+        } catch (err) {
+            console.warn("Corrupted chatUser data", err);
+            localStorage.removeItem("chatUser");
+        }
     }
+
+    // Default behavior if no saved user
+    chatWelcome.style.display = 'none';
+    userRegistration.classList.add('active');
+}
 
     // Validate email format
     function isValidEmail(email) {
@@ -721,88 +770,84 @@
 
     // Handle registration form submission
     async function handleRegistration(event) {
-        event.preventDefault();
-        
-        // Reset error messages
-        nameError.textContent = '';
-        emailError.textContent = '';
-        nameInput.classList.remove('error');
-        emailInput.classList.remove('error');
-        
-        // Get values
-        const name = nameInput.value.trim();
-        const email = emailInput.value.trim();
-        
-        // Validate
-        let isValid = true;
-        
-        if (!name) {
-            nameError.textContent = 'Please enter your name';
-            nameInput.classList.add('error');
-            isValid = false;
+    event.preventDefault();
+
+    // Reset error messages
+    nameError.textContent = '';
+    emailError.textContent = '';
+    nameInput.classList.remove('error');
+    emailInput.classList.remove('error');
+
+    // Get values
+    const name = nameInput.value.trim();
+    const email = emailInput.value.trim();
+
+    // Validate
+    let isValid = true;
+    if (!name) {
+        nameError.textContent = 'Please enter your name';
+        nameInput.classList.add('error');
+        isValid = false;
+    }
+    if (!email) {
+        emailError.textContent = 'Please enter your email';
+        emailInput.classList.add('error');
+        isValid = false;
+    } else if (!isValidEmail(email)) {
+        emailError.textContent = 'Please enter a valid email address';
+        emailInput.classList.add('error');
+        isValid = false;
+    }
+    if (!isValid) return;
+
+    // 🔹 Save details for next visit
+    localStorage.setItem("chatUser", JSON.stringify({ name, email }));
+
+    // Continue existing flow
+    conversationId = createSessionId();
+    const sessionData = [{
+        action: "loadPreviousSession",
+        sessionId: conversationId,
+        route: settings.webhook.route,
+        metadata: {
+            userId: email,
+            userName: name
         }
-        
-        if (!email) {
-            emailError.textContent = 'Please enter your email';
-            emailInput.classList.add('error');
-            isValid = false;
-        } else if (!isValidEmail(email)) {
-            emailError.textContent = 'Please enter a valid email address';
-            emailInput.classList.add('error');
-            isValid = false;
-        }
-        
-        if (!isValid) return;
-        
-        // Initialize conversation with user data
-        conversationId = createSessionId();
-        
-        // First, load the session
-        const sessionData = [{
-            action: "loadPreviousSession",
+    }];
+
+    try {
+        userRegistration.classList.remove('active');
+        chatBody.classList.add('active');
+        const typingIndicator = createTypingIndicator();
+        messagesContainer.appendChild(typingIndicator);
+
+        const sessionResponse = await fetch(settings.webhook.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sessionData)
+        });
+
+        const sessionResponseData = await sessionResponse.json();
+
+        const userInfoMessage = `Name: ${name}\nEmail: ${email}`;
+        const userInfoData = {
+            action: "sendMessage",
             sessionId: conversationId,
             route: settings.webhook.route,
+            chatInput: userInfoMessage,
             metadata: {
                 userId: email,
-                userName: name
+                userName: name,
+                isUserInfo: true
             }
-        }];
+        };
 
-        try {
-            // Hide registration form, show chat interface
-            userRegistration.classList.remove('active');
-            chatBody.classList.add('active');
-            
-            // Show typing indicator
-            const typingIndicator = createTypingIndicator();
-            messagesContainer.appendChild(typingIndicator);
-            
-            // Load session
-            const sessionResponse = await fetch(settings.webhook.url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(sessionData)
-            });
-            
-            const sessionResponseData = await sessionResponse.json();
-            
-            // Send user info as first message
-            const userInfoMessage = `Name: ${name}\nEmail: ${email}`;
-            
-            const userInfoData = {
-                action: "sendMessage",
-                sessionId: conversationId,
-                route: settings.webhook.route,
-                chatInput: userInfoMessage,
-                metadata: {
-                    userId: email,
-                    userName: name,
-                    isUserInfo: true
-                }
-            };
-            
+        // continue with existing send flow...
+    } catch (err) {
+        console.error("Error handling registration: info@customcx.com", err);
+    }
+}
+
             // Send user info
             const userInfoResponse = await fetch(settings.webhook.url, {
                 method: 'POST',
@@ -873,8 +918,8 @@
         isWaitingForResponse = true;
         
         // Get user info if available
-        const email = nameInput ? nameInput.value.trim() : "";
-        const name = emailInput ? emailInput.value.trim() : "";
+        const email = emailInput ? emailInput.value.trim() : "";
+        const name = nameInput ? nameInput.value.trim() : "";
         
         const requestData = {
             action: "sendMessage",
@@ -981,3 +1026,4 @@
         });
     });
 })();
+
