@@ -769,84 +769,75 @@ function showRegistrationForm() {
     }
 
     // Handle registration form submission
-    async function handleRegistration(event) {
-    event.preventDefault();
+    // Show registration form
+async function showRegistrationForm() {
+    // 🔹 Check for saved user details
+    const savedUser = localStorage.getItem("chatUser");
+    if (savedUser) {
+        try {
+            const { name, email } = JSON.parse(savedUser);
 
-    // Reset error messages
-    nameError.textContent = '';
-    emailError.textContent = '';
-    nameInput.classList.remove('error');
-    emailInput.classList.remove('error');
+            conversationId = createSessionId();
+            const sessionData = [{
+                action: "loadPreviousSession",
+                sessionId: conversationId,
+                route: settings.webhook.route,
+                metadata: {
+                    userId: email,
+                    userName: name
+                }
+            }];
 
-    // Get values
-    const name = nameInput.value.trim();
-    const email = emailInput.value.trim();
+            // Hide registration form, show chat interface
+            chatWelcome.style.display = 'none';
+            userRegistration.classList.remove('active');
+            chatBody.classList.add('active');
 
-    // Validate
-    let isValid = true;
-    if (!name) {
-        nameError.textContent = 'Please enter your name';
-        nameInput.classList.add('error');
-        isValid = false;
-    }
-    if (!email) {
-        emailError.textContent = 'Please enter your email';
-        emailInput.classList.add('error');
-        isValid = false;
-    } else if (!isValidEmail(email)) {
-        emailError.textContent = 'Please enter a valid email address';
-        emailInput.classList.add('error');
-        isValid = false;
-    }
-    if (!isValid) return;
+            // Show typing indicator
+            const typingIndicator = createTypingIndicator();
+            messagesContainer.appendChild(typingIndicator);
 
-    // 🔹 Save details for next visit
-    localStorage.setItem("chatUser", JSON.stringify({ name, email }));
+            // Load session
+            const sessionResponse = await fetch(settings.webhook.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sessionData)
+            });
 
-    // Continue existing flow
-    conversationId = createSessionId();
-    const sessionData = [{
-        action: "loadPreviousSession",
-        sessionId: conversationId,
-        route: settings.webhook.route,
-        metadata: {
-            userId: email,
-            userName: name
+            await sessionResponse.json();
+
+            // Optionally send saved user info again (if you want backend to know)
+            const userInfoMessage = `Name: ${name}\nEmail: ${email}`;
+            const userInfoData = {
+                action: "sendMessage",
+                sessionId: conversationId,
+                route: settings.webhook.route,
+                chatInput: userInfoMessage,
+                metadata: {
+                    userId: email,
+                    userName: name,
+                    isUserInfo: true
+                }
+            };
+
+            await fetch(settings.webhook.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(userInfoData)
+            });
+
+            return; // ✅ skip form completely
+        } catch (err) {
+            console.warn("Corrupted chatUser data", err);
+            localStorage.removeItem("chatUser");
         }
-    }];
-
-    try {
-        userRegistration.classList.remove('active');
-        chatBody.classList.add('active');
-        const typingIndicator = createTypingIndicator();
-        messagesContainer.appendChild(typingIndicator);
-
-        const sessionResponse = await fetch(settings.webhook.url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(sessionData)
-        });
-
-        const sessionResponseData = await sessionResponse.json();
-
-        const userInfoMessage = `Name: ${name}\nEmail: ${email}`;
-        const userInfoData = {
-            action: "sendMessage",
-            sessionId: conversationId,
-            route: settings.webhook.route,
-            chatInput: userInfoMessage,
-            metadata: {
-                userId: email,
-                userName: name,
-                isUserInfo: true
-            }
-        };
-
-        // continue with existing send flow...
-    } catch (err) {
-        console.error("Error handling registration: info@customcx.com", err);
     }
+
+    // Default behavior if no saved user
+    chatWelcome.style.display = 'none';
+    userRegistration.classList.add('active');
 }
+
 
             // Send user info
             const userInfoResponse = await fetch(settings.webhook.url, {
@@ -1026,4 +1017,5 @@ function showRegistrationForm() {
         });
     });
 })();
+
 
